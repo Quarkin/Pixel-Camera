@@ -48,5 +48,5 @@ jobs:
       - name: Attach .mpp to Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload v1.0.3 morphe-patches/build/libs/*.mpp --clobber
+        run: gh release upload v1.0.3 morphe-patches/patches/build/libs/*.mpp --clobber
 
