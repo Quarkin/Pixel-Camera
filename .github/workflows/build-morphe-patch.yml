@@ -35,11 +35,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         working-directory: morphe-patches
         run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew buildAndroid --no-daemon || ./gradlew :patches:buildAndroid --no-daemon || ./gradlew build --no-daemon
-          else
-            gradle buildAndroid --no-daemon || gradle :patches:buildAndroid --no-daemon || gradle build --no-daemon || true
-          fi
+          gradle buildAndroid --no-daemon || gradle :patches:buildAndroid --no-daemon || gradle build --no-daemon
 
       - name: Upload .mpp Artifact
         uses: actions/upload-artifact@v4
