@@ -33,15 +33,13 @@ jobs:
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        working-directory: morphe-patches
-        run: |
-          gradle buildAndroid --no-daemon || gradle :patches:buildAndroid --no-daemon || gradle build --no-daemon
+        run: cd morphe-patches && gradle build
 
       - name: Upload .mpp Artifact
         uses: actions/upload-artifact@v4
         with:
           name: morphe-patches-pixelcamera
-          path: morphe-patches/**/build/libs/*.mpp
+          path: morphe-patches/build/libs/*.mpp
           if-no-files-found: warn
 
       - name: Attach .mpp to Release
