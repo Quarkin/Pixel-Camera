@@ -1,0 +1,8 @@
+{
+  "name": "Pixel Camera Looks & Creator Suite",
+  "description": "Interactive Pixel Camera experience featuring Pixel 11 Camera Looks (Sauce & Tomte), Creator Suite, 10x Super Res Zoom, Pro Manual Controls, and Morphe patcher toolkit for Pixel 6-10.",
+  "requestFrame": "true",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

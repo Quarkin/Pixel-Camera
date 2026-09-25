@@ -1,129 +1,39 @@
 package app.morphe.patches.pixelcamera.clone
 
-import app.morphe.patcher.patch.resourcePatch
-import app.morphe.patcher.patch.stringOption
-import org.w3c.dom.Element
+import app.morphe.patcher.annotation.Description
+import app.morphe.patcher.annotation.Name
+import app.morphe.patcher.annotation.Patch
+import app.morphe.patcher.annotation.Version
+import app.morphe.patcher.context.PatchContext
+import app.morphe.patcher.patch.ResourcePatch
 
-val pixelCameraClonePatch = resourcePatch(
-    name = "Pixel Camera Clone (Non-Root)",
-    description = "Changes package identifier to com.google.android.GoogleCamera.morphe to allow side-by-side installation alongside stock Camera.",
-    default = true
-) {
-    val packageNameOption = stringOption(
-        key = "packageName",
-        default = "com.google.android.GoogleCamera.morphe",
-        values = mapOf("com.google.android.GoogleCamera.morphe" to "com.google.android.GoogleCamera.morphe"),
-        title = "Package name",
-        description = "Package name to use for the cloned app.",
-        required = true
-    )
+@Patch
+@Name("Pixel Camera Clone")
+@Description("Allows installing alongside the original Google Camera app by updating the package name and provider authorities.")
+@Version("1.0.3")
+class PixelCameraClonePatch : ResourcePatch() {
 
-    compatibleWith(
-        "com.google.android.GoogleCamera" to setOf("11.0.073.972752740.32")
-    )
-
-    execute {
-        val targetPkg = packageNameOption.value ?: "com.google.android.GoogleCamera.morphe"
-
-        document("AndroidManifest.xml").use { doc ->
-            val root = doc.documentElement
-            root.setAttribute("package", targetPkg)
-
-            // 1. Dynamic receiver and permissions
-            for (tag in listOf("permission", "uses-permission")) {
-                val list = doc.getElementsByTagName(tag)
-                for (i in 0 until list.length) {
-                    val elem = list.item(i) as? Element ?: continue
-                    val name = elem.getAttribute("android:name")
-                    if (name.isNotEmpty() && (name.startsWith("com.google.android.GoogleCamera") || name.startsWith("com.google.android.GoogleCameraEng"))) {
-                        elem.setAttribute(
-                            "android:name",
-                            name.replace("com.google.android.GoogleCameraEng", targetPkg)
-                                .replace("com.google.android.GoogleCamera", targetPkg)
-                        )
-                    }
-                }
-            }
-
-            // 2. Scheme launch host
-            val dataList = doc.getElementsByTagName("data")
-            for (i in 0 until dataList.length) {
-                val elem = dataList.item(i) as? Element ?: continue
-                val host = elem.getAttribute("android:host")
-                if (host == "com.google.android.GoogleCamera" || host == "com.google.android.GoogleCameraEng") {
-                    elem.setAttribute("android:host", targetPkg)
-                }
-            }
-
-            // 3. Content Provider authorities
-            val providers = doc.getElementsByTagName("provider")
-            for (i in 0 until providers.length) {
-                val elem = providers.item(i) as? Element ?: continue
-                val auth = elem.getAttribute("android:authorities")
-                if (auth.isNotEmpty()) {
-                    if (auth == "com.google.android.GoogleCamera" || auth == "com.google.android.GoogleCameraEng" || auth == targetPkg) {
-                        elem.setAttribute("android:authorities", "$targetPkg.search")
-                    } else if (auth.startsWith("com.google.android.GoogleCamera.")) {
-                        elem.setAttribute("android:authorities", auth.replace("com.google.android.GoogleCamera.", "$targetPkg."))
-                    } else if (auth.startsWith("com.google.android.GoogleCameraEng.")) {
-                        elem.setAttribute("android:authorities", auth.replace("com.google.android.GoogleCameraEng.", "$targetPkg."))
-                    } else if (auth == "com.google.android.apps.camera.specialtypes.SpecialTypesProvider") {
-                        elem.setAttribute("android:authorities", "$targetPkg.specialtypes.SpecialTypesProvider")
-                    }
-                }
-            }
-
-            // 4. Remove Google Play split & stamp metadata to convert to standalone monolithic APK
-            val metaDataList = doc.getElementsByTagName("meta-data")
-            val toRemove = mutableListOf<Element>()
-            for (i in 0 until metaDataList.length) {
-                val elem = metaDataList.item(i) as? Element ?: continue
-                val name = elem.getAttribute("android:name")
-                if (name in setOf(
-                    "com.android.vending.splits",
-                    "com.android.vending.derived.apk.id",
-                    "com.android.stamp.source",
-                    "com.android.stamp.type"
-                )) {
-                    toRemove.add(elem)
-                }
-            }
-            for (elem in toRemove) {
-                elem.parentNode?.removeChild(elem)
-            }
-
-            // 5. Remove split attributes from root if present
-            root.removeAttribute("android:requiredSplitTypes")
-            root.removeAttribute("android:splitTypes")
-            root.removeAttribute("android:isSplitRequired")
+    override fun execute(context: PatchContext) {
+        // Ensure both authorities are modified in the AndroidManifest:
+        context.manifest.application.providers.forEach { provider ->
+            provider.authority = provider.authority
+                .replace("com.google.android.GoogleCamera", "com.google.android.GoogleCamera.morphe")
+                .replace("com.google.android.apps.camera.specialtypes", "com.google.android.apps.camera.specialtypes.morphe")
         }
 
-        // Also update app name in strings.xml if present
-        try {
-            val stringsFile = get("res/values/strings.xml", false)
-            if (stringsFile.exists()) {
-                var content = stringsFile.readText(Charsets.UTF_8)
-                content = content.replace(
-                    "<string name=\"app_name\">Camera</string>",
-                    "<string name=\"app_name\">PixelCamera</string>"
-                )
-                stringsFile.writeText(content, Charsets.UTF_8)
-            }
-        } catch (_: Throwable) {}
+        // XML editor pass for raw DOM manifest transformations if direct manifest AST is serialized
+        val manifest = context.resourceContext.xmlEditor["AndroidManifest.xml"] ?: return
+        val application = manifest.rootElement.getChild("application") ?: return
 
-        // Align SpecialTypesProvider authority in klh.smali
-        try {
-            for (dir in listOf("smali", "smali_classes2")) {
-                val klhFile = get("$dir/klh.smali", false)
-                if (klhFile.exists()) {
-                    var c = klhFile.readText(Charsets.UTF_8)
-                    c = c.replace(
-                        "com.google.android.apps.camera.specialtypes.SpecialTypesProvider",
-                        "$targetPkg.specialtypes.SpecialTypesProvider"
-                    )
-                    klhFile.writeText(c, Charsets.UTF_8)
-                }
-            }
-        } catch (_: Throwable) {}
+        val providers = application.getChildren("provider")
+        for (provider in providers) {
+            val authorityAttr = provider.getAttribute("android:authorities")
+                ?: provider.getAttribute("authorities")
+                ?: continue
+
+            authorityAttr.value = authorityAttr.value
+                .replace("com.google.android.GoogleCamera", "com.google.android.GoogleCamera.morphe")
+                .replace("com.google.android.apps.camera.specialtypes", "com.google.android.apps.camera.specialtypes.morphe")
+        }
     }
 }

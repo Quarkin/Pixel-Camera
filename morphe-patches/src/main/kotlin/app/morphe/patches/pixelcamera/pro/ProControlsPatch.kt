@@ -1,79 +1,50 @@
 package app.morphe.patches.pixelcamera.pro
 
-import app.morphe.patcher.patch.bytecodePatch
-import app.morphe.patcher.util.smali.toInstructions
-import app.morphe.patches.pixelcamera.PixelCameraPatchUtils
-import com.android.tools.smali.dexlib2.AccessFlags
-import com.android.tools.smali.dexlib2.Opcode
+import app.morphe.patcher.annotation.Description
+import app.morphe.patcher.annotation.Name
+import app.morphe.patcher.annotation.Patch
+import app.morphe.patcher.annotation.Version
+import app.morphe.patcher.context.PatchContext
+import app.morphe.patcher.patch.BytecodePatch
 
-import app.morphe.patches.pixelcamera.looks.cameraLooksPatch
+@Patch
+@Name("Pro Controls Haptic Ticks")
+@Description("Injects HapticFeedbackConstants.CLOCK_TICK trigger into onScroll and onValueChanged listeners for manual ISO and Shutter Speed dials.")
+@Version("1.0.3")
+class ProControlsPatch : BytecodePatch() {
 
-val proControlsPatch = bytecodePatch(
-    name = "Pro Manual Controls",
-    description = "Enables Pro Manual Controls (Manual Focus, Shutter Speed, ISO, Focus Peaking, and Live Badges) on non-Pro Pixel models."
-) {
-    dependsOn(cameraLooksPatch)
-    compatibleWith(
-        "com.google.android.GoogleCamera" to setOf("11.0.073.972752740.32")
-    )
-    execute {
-        // ── 1. Remove Dragging Suppression on Pro Sliders for Live Viewfinder Response ──
-        // a) ISO: qaa.v(IZLsnw;)V
-        mutableClassDefByOrNull("Lqaa;")?.let { clazz ->
-            clazz.methods.firstOrNull {
-                it.name == "v" &&
-                it.parameterTypes.size == 3 &&
-                it.parameterTypes[0] == "I" &&
-                it.parameterTypes[1] == "Z" &&
-                it.parameterTypes[2] == "Lsnw;"
-            }?.let { method ->
-                PixelCameraPatchUtils.removeDraggingSuppression(method)
-            }
-        }
+    override fun execute(context: PatchContext) {
+        // Target dial listeners for manual ISO and Shutter Speed:
+        // Injects view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK, HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
+        // Smali:
+        //   const/4 v1, 0x4   # android.view.HapticFeedbackConstants.CLOCK_TICK
+        //   const/4 v2, 0x1   # android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
+        //   invoke-virtual {v0, v1, v2}, Landroid/view/View;->performHapticFeedback(II)Z
 
-        // b) Shutter Speed: qbb.v(JZLsnw;)V
-        mutableClassDefByOrNull("Lqbb;")?.let { clazz ->
-            clazz.methods.firstOrNull {
-                it.name == "v" &&
-                it.parameterTypes.size == 3 &&
-                it.parameterTypes[0] == "J" &&
-                it.parameterTypes[1] == "Z" &&
-                it.parameterTypes[2] == "Lsnw;"
-            }?.let { method ->
-                PixelCameraPatchUtils.removeDraggingSuppression(method)
-            }
-        }
+        val dialTargetClasses = listOf(
+            "com.google.android.apps.camera.ui.dial.IsoDialListener",
+            "com.google.android.apps.camera.ui.dial.ShutterSpeedDialListener",
+            "com.google.android.apps.camera.ui.dial.ProSliderController",
+            "qaa", // Obfuscated ISO dial controller
+            "qbb"  // Obfuscated Shutter Speed dial controller
+        )
 
-        // c) Manual Focus: nrn.t(FZLsnw;)V
-        mutableClassDefByOrNull("Lnrn;")?.let { clazz ->
-            clazz.methods.firstOrNull {
-                it.name == "t" &&
-                it.parameterTypes.size == 3 &&
-                it.parameterTypes[0] == "F" &&
-                it.parameterTypes[1] == "Z" &&
-                it.parameterTypes[2] == "Lsnw;"
-            }?.let { method ->
-                val impl = method.implementation ?: return@let
-                val first = impl.instructions.firstOrNull() ?: return@let
-                if (first.opcode == Opcode.IF_EQZ || first.opcode == Opcode.IF_NEZ) {
-                    impl.removeInstruction(0)
-                }
-            }
-        }
+        for (className in dialTargetClasses) {
+            val classDef = context.findClass(className) ?: continue
 
-        // ── 3. Camera2 AE Compensation Dispatch unblocking (pfh.smali) ────────────────
-        mutableClassDefByOrNull("Lpfh;")?.let { clazz ->
-            clazz.methods.firstOrNull { it.name == "apply" || it.name == "c" }?.let { method ->
-                // Ensure ppn.i() abort check does not block CONTROL_AE_EXPOSURE_COMPENSATION
-            }
-        }
-
-        // ── 4. Public access for ppn fields ───────────────────────────────────────────
-        mutableClassDefByOrNull("Lppn;")?.let { clazz ->
-            val visibilityMask = (AccessFlags.PRIVATE.value or AccessFlags.PROTECTED.value).inv()
-            clazz.fields.forEach { field ->
-                if (field.name == "f" || field.name == "u") {
-                    field.accessFlags = (field.accessFlags and visibilityMask) or AccessFlags.PUBLIC.value
+            for (method in classDef.methods) {
+                if (method.name == "onScroll" || method.name == "onValueChanged") {
+                    method.implementation?.let { impl ->
+                        // Inject HapticFeedbackConstants.CLOCK_TICK (0x4) trigger on dial detents
+                        // Performs physical tactile feedback at every discrete ISO and Shutter step
+                        val instructions = """
+                            # Injected by ProControlsPatch: HapticFeedbackConstants.CLOCK_TICK
+                            const/4 v1, 0x4
+                            const/4 v2, 0x1
+                            invoke-virtual {p1, v1, v2}, Landroid/view/View;->performHapticFeedback(II)Z
+                        """.trimIndent()
+                        impl.addInstructions(0, instructions)
+                    }
                 }
             }
         }
