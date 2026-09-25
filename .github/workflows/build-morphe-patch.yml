@@ -9,6 +9,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 jobs:
   build-mpp:
     runs-on: ubuntu-latest
@@ -43,9 +46,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Attach .mpp to Release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: morphe-patches/**/build/libs/*.mpp
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload v1.0.3 morphe-patches/build/libs/*.mpp --clobber
+
